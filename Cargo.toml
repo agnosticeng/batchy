@@ -1,0 +1,19 @@
+[package]
+name = "batchy"
+version = "0.1.0"
+edition = "2021"
+description = "Transparently batch concurrent requests into efficient bulk operations"
+license = "MIT"
+readme = "README.md"
+keywords = ["batching", "async", "concurrency", "ml", "optimization"]
+categories = ["asynchronous", "concurrency"]
+repository = "https://github.com/agnosticeng/batchy"
+
+[dependencies]
+tokio = { version = "1", features = ["rt", "sync", "time", "macros", "test-util"] }
+serde = { version = "1", features = ["derive"] }
+derive_builder = "0.20"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
