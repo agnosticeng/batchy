@@ -10,7 +10,7 @@ Batchy merges multiple concurrent requests into larger batches, forwarding them 
 - **Configurable strategy**: Control max batch size, queue size, and wait time
 - **Backpressure**: Built-in queue limits prevent memory exhaustion under high load
 - **Error handling**: Batch-level errors are delivered to all affected callers
-- **Async-native**: Built on tokio for high-performance async workloads
+- **Two modes**: Async `Batcher` for async workloads, `SyncBatcher` for sync workloads with thread-local resources
 
 ## Quick Start
 
@@ -20,24 +20,22 @@ batchy = "0.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
-## Usage
+## Async Batcher
+
+For async workloads:
 
 ```rust
 use batchy::{Batcher, BatcherConfig};
-use tokio;
 
 #[tokio::main]
 async fn main() {
-    // Create a batcher that processes text prompts
     let config = BatcherConfig {
-        max_batch: 16,           // Max 16 requests per batch
-        queue_size: 64,          // Queue up to 64 pending requests
-        max_wait_ms: 50,         // Wait max 50ms for batch to fill
+        max_batch: 16,
+        queue_size: 64,
+        max_wait_ms: 50,
     };
 
     let batcher = Batcher::new(config, |prompts: Vec<String>| async move {
-        // Your batch processing logic here
-        // For ML inference, this would be your model inference call
         let results: Vec<String> = prompts
             .iter()
             .map(|p| format!("Processed: {}", p))
@@ -45,12 +43,10 @@ async fn main() {
         Ok(results)
     });
 
-    // Submit requests concurrently - they'll be automatically batched
     let handles: Vec<_> = (0..10)
         .map(|i| batcher.run(format!("request-{}", i)))
         .collect();
 
-    // Await all results
     let results = futures::future::join_all(handles).await;
     
     for result in results {
@@ -58,6 +54,52 @@ async fn main() {
     }
 }
 ```
+
+### CPU-Heavy Async Work
+
+For CPU-intensive async operations, wrap in `spawn_blocking`:
+
+```rust
+let batcher = Batcher::new(config, move |items: Vec<YourInput>| async move {
+    tokio::task::spawn_blocking(move || {
+        your_cpu_heavy_function(items)
+    })
+    .await
+    .map_err(|e| format!("Task panicked: {}", e))?
+});
+```
+
+## Synchronous Batcher
+
+For sync workloads that need thread-local resources (like `fastembed`'s `TextEmbedding`):
+
+```rust
+use batchy::{SyncBatcher, BatcherConfig};
+
+#[tokio::main]
+async fn main() {
+    let config = BatcherConfig {
+        max_batch: 16,
+        queue_size: 64,
+        max_wait_ms: 50,
+    };
+
+    // Init runs ONCE on the worker thread
+    let batcher: SyncBatcher<String, Vec<f32>, String> = SyncBatcher::new(config, || {
+        let model = load_embedding_model(); // Expensive init
+        
+        move |texts: Vec<String>| {
+            // Uses the initialized model
+            Ok(texts.into_iter().map(|t| embed_text(&model, &t)).collect())
+        }
+    });
+
+    let result = batcher.run("hello".to_string()).await?;
+    println!("{:?}", result);
+}
+```
+
+This avoids `spawn_blocking` overhead and keeps thread-local state alive on the worker thread.
 
 ## Configuration
 
@@ -69,6 +111,7 @@ async fn main() {
 
 ```rust
 use batchy::BatcherConfig;
+use batchy::BatcherConfigBuilder;
 
 // Using builder pattern
 let config = BatcherConfigBuilder::default()
@@ -98,11 +141,6 @@ The processor returns `Result<Vec<Res>, E>`:
 
 ```rust
 let batcher = Batcher::new(config, |items: Vec<i32>| async move {
-    if items.is_empty() {
-        return Err("Empty batch".to_string());
-    }
-    
-    // Simulate processing error
     if items.iter().any(|&x| x < 0) {
         return Err("Negative values not allowed".to_string());
     }
@@ -111,27 +149,13 @@ let batcher = Batcher::new(config, |items: Vec<i32>| async move {
 });
 ```
 
-## CPU-Heavy Work
-
-For CPU-intensive operations like ML inference, wrap your work in `spawn_blocking`:
-
-```rust
-let batcher = Batcher::new(config, move |items: Vec<YourInput>| async move {
-    tokio::task::spawn_blocking(move || {
-        // CPU-heavy work here (e.g., model inference)
-        your_cpu_heavy_function(items)
-    })
-    .await
-    .map_err(|e| format!("Task panicked: {}", e))?
-});
-```
-
 ## Use Cases
 
-- **ML Inference**: Batch multiple inputs for GPU efficiency
-- **Database Queries**: Combine individual queries into bulk operations
-- **API Calls**: Aggregate requests to respect rate limits
-- **File I/O**: Batch disk writes for better throughput
+- **ML Inference**: Batch multiple inputs for GPU efficiency (`Batcher` or `SyncBatcher`)
+- **Database Queries**: Combine individual queries into bulk operations (`Batcher`)
+- **API Calls**: Aggregate requests to respect rate limits (`Batcher`)
+- **File I/O**: Batch disk writes for better throughput (`SyncBatcher`)
+- **Embedding Models**: Thread-local model instances with sync processing (`SyncBatcher`)
 
 ## License
 
