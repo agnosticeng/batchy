@@ -102,12 +102,12 @@ pub(crate) async fn async_worker<Req, Res, E, F, Fut>(
 pub(crate) fn sync_worker<Req, Res, E, G>(
     mut rx: mpsc::Receiver<PendingRequest<Req, Res, E>>,
     config: BatcherConfig,
-    process: G,
+    mut process: G,
 ) where
     Req: Send + 'static,
     Res: Send + 'static,
     E: Clone + Send + 'static,
-    G: Fn(Vec<Req>) -> Result<Vec<Res>, E> + Send + 'static,
+    G: FnMut(Vec<Req>) -> Result<Vec<Res>, E> + Send + 'static,
 {
     use std::time::Instant;
 

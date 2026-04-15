@@ -61,7 +61,7 @@ where
     pub fn new<F, G>(config: BatcherConfig, init: F) -> Self
     where
         F: FnOnce() -> G + Send + 'static,
-        G: Fn(Vec<Req>) -> Result<Vec<Res>, E> + Send + 'static,
+        G: FnMut(Vec<Req>) -> Result<Vec<Res>, E> + Send + 'static,
     {
         let (tx, rx) = mpsc::channel::<PendingRequest<Req, Res, E>>(config.queue_size);
 
